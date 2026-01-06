@@ -101,8 +101,74 @@ curl http://<EXTERNAL-IP>/health
 
 ## Testing Alerts
 
+### Simulating Redis Credential Expiry (Realistic Failure Scenario)
+
+This simulates a common production issue: **Redis access keys were rotated in Azure, but the application wasn't updated with the new credentials.**
+
+**Step 1: Inject wrong Redis password**
 ```bash
-# Simulate errors
+kubectl create secret generic redis-secret \
+  --from-literal=REDIS_PASSWORD="WRONG_EXPIRED_KEY_12345" \
+  -n aks-journal-app \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+**Step 2: Delete pods to pick up the new (wrong) secret**
+```bash
+kubectl delete pods -n aks-journal-app -l app=aks-journal
+```
+
+**Step 3: Test the app - should show degraded state**
+```bash
+# Health check shows Redis disconnected
+curl http://<EXTERNAL-IP>/health
+# Returns: {"status":"degraded","checks":{"redis":"disconnected"}}
+
+# API operations fail
+curl http://<EXTERNAL-IP>/api/journals/john
+# Returns: {"error":"Failed to retrieve journal entries"}
+```
+
+**Step 4: Generate load to trigger alerts**
+```bash
+# Run in a loop to generate errors for alerting
+while true; do
+  curl -s http://<EXTERNAL-IP>/api/journals/john
+  curl -s -X POST http://<EXTERNAL-IP>/api/journals/john \
+    -H "Content-Type: application/json" \
+    -d '{"title": "Test", "content": "This will fail"}'
+  sleep 2
+done
+```
+
+**What happens:**
+- Pods stay running (app handles Redis failures gracefully)
+- Health endpoint returns `degraded` status
+- All journal read/write operations fail with 500 errors
+- Error logs are sent to Log Analytics
+- Azure Monitor alerts fire for container errors
+- **Azure SRE Agent** can query logs, diagnose the issue, and create a Jira ticket
+
+**To restore (fix the issue):**
+```bash
+# Get the correct Redis key
+REDIS_KEY=$(az redis list-keys --resource-group rg-aks-journal \
+  --name <redis-name> --query "primaryKey" -o tsv)
+
+# Update the secret with correct password
+kubectl create secret generic redis-secret \
+  --from-literal=REDIS_PASSWORD="$REDIS_KEY" \
+  -n aks-journal-app \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Restart pods
+kubectl rollout restart deployment/aks-journal -n aks-journal-app
+```
+
+### Other Test Scenarios
+
+```bash
+# Simulate application errors
 curl http://<EXTERNAL-IP>/api/simulate/error
 
 # Simulate memory pressure
