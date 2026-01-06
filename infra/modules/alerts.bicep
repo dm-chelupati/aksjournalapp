@@ -250,4 +250,197 @@ resource jobFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-prev
   }
 }
 
+// Log-based Alert: Pods not ready (Readiness probe failures)
+resource podsNotReadyAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: '${abbrs.insightsMetricAlerts}pods-not-ready'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'Pods Not Ready Alert'
+    description: 'Alert when pods fail readiness probes or are not ready'
+    severity: 1
+    enabled: true
+    evaluationFrequency: 'PT5M'
+    scopes: [logAnalyticsWorkspaceId]
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            KubePodInventory
+            | where Namespace == "aks-journal-app"
+            | where PodStatus != "Running" or ContainerStatusReason != ""
+            | summarize NotReadyCount = dcount(PodUid) by Namespace, bin(TimeGenerated, 5m)
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [actionGroup.id]
+    }
+  }
+}
+
+// Log-based Alert: Redis connection errors in container logs
+resource redisConnectionAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: '${abbrs.insightsMetricAlerts}redis-connection-errors'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'Redis Connection Error Alert'
+    description: 'Alert when Redis connection failures are detected in logs'
+    severity: 1
+    enabled: true
+    evaluationFrequency: 'PT5M'
+    scopes: [logAnalyticsWorkspaceId]
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            ContainerLogV2
+            | where LogMessage has_any ("Redis", "WRONGPASS", "NOAUTH", "connection refused", "ECONNREFUSED")
+            | where LogMessage has_any ("error", "failed", "Error", "Failed")
+            | summarize ErrorCount = count() by ContainerName, bin(TimeGenerated, 5m)
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [actionGroup.id]
+    }
+  }
+}
+
+// Log-based Alert: Readiness/Liveness probe failures (SRE Agent recommended)
+resource probeFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: '${abbrs.insightsMetricAlerts}probe-failures'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'Probe Failure Alert'
+    description: 'Alert when readiness/liveness probes fail in aks-journal-app namespace'
+    severity: 2
+    enabled: true
+    evaluationFrequency: 'PT5M'
+    scopes: [logAnalyticsWorkspaceId]
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            KubeEvents
+            | where TimeGenerated >= ago(15m)
+            | where Namespace == "aks-journal-app"
+            | where Reason in ("Unhealthy", "UnhealthyReadinessProbe", "UnhealthyLivenessProbe") or Message contains "probe failed"
+            | summarize Failures = count() by Name, Namespace, bin(TimeGenerated, 5m)
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [actionGroup.id]
+    }
+  }
+}
+
+// Log-based Alert: Ingress timeouts and 5xx errors (SRE Agent recommended)
+resource ingressTimeoutAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: '${abbrs.insightsMetricAlerts}ingress-timeouts'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'Ingress Timeout Alert'
+    description: 'Alert when ingress shows 5xx/timeout errors'
+    severity: 2
+    enabled: true
+    evaluationFrequency: 'PT5M'
+    scopes: [logAnalyticsWorkspaceId]
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            ContainerLogV2
+            | where TimeGenerated >= ago(15m)
+            | where ContainerName contains "ingress" or PodName contains "ingress"
+            | where LogMessage contains "upstream timed out" or LogMessage contains "504" or LogMessage contains "timeout"
+            | summarize Events = count() by bin(TimeGenerated, 5m)
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 5
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [actionGroup.id]
+    }
+  }
+}
+
+// Log-based Alert: BackOff events (container crash loops)
+resource backOffAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: '${abbrs.insightsMetricAlerts}backoff-events'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'Container BackOff Alert'
+    description: 'Alert when containers enter BackOff state (crash loop)'
+    severity: 1
+    enabled: true
+    evaluationFrequency: 'PT5M'
+    scopes: [logAnalyticsWorkspaceId]
+    windowSize: 'PT15M'
+    criteria: {
+      allOf: [
+        {
+          query: '''
+            KubeEvents
+            | where TimeGenerated >= ago(15m)
+            | where Namespace == "aks-journal-app"
+            | where Reason == "BackOff"
+            | summarize BackOffCount = count() by Name, Namespace, bin(TimeGenerated, 5m)
+          '''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [actionGroup.id]
+    }
+  }
+}
+
 output actionGroupId string = actionGroup.id
