@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aks-journal-pdb
+  namespace: aks-journal-app
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: aks-journal

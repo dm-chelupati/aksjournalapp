@@ -1,0 +1,9 @@
+{
+  "containerServiceManagedClusters": "aks-",
+  "containerRegistries": "acr",
+  "cacheRedis": "redis-",
+  "operationalInsightsWorkspaces": "log-",
+  "resourcesResourceGroups": "rg-",
+  "insightsActionGroups": "ag-",
+  "insightsMetricAlerts": "alert-"
+}

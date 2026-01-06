@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aks-journal-app
+  labels:
+    app: aks-journal
+    environment: production

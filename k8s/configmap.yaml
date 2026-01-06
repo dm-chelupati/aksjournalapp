@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: journal-config
+  namespace: aks-journal-app
+data:
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  REDIS_TLS: "true"
+  PORT: "3000"
