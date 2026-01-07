@@ -26,6 +26,11 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(pinoHttp({ logger }));
 
+// Root handler to return 200 OK for default path and LB/health probes
+app.get('/', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // Health check endpoints
 app.get('/health', async (req, res) => {
   const redisHealthy = await redisClient.healthCheck();
